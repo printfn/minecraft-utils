@@ -43,7 +43,7 @@ if ! command -v sha1sum &>/dev/null; then
     # sha1sum not installed, skip verification
     exit
 fi
-if ! sha1sum --check <(echo "$sha1 server.jar") >/dev/null 2>/dev/null; then
+if ! sha1sum --check <(echo "$sha1 server.jar") &>/dev/null; then
     echo "Error: checksum mismatch" >&2
     exit 1
 fi
