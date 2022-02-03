@@ -10,7 +10,7 @@ set -euo pipefail
 # bash <(curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) latest
 
 if [[ "$#" == 0 ]]; then
-  echo "Usage: $0 <version> (or one of 'latest', 'latest-snapshot', 'list')" >&2
+  echo "Usage: $0 <version> (or one of 'latest', 'latest-snapshot', 'list', 'list-latest', 'list-latest-snapshot')" >&2
   exit 1
 fi
 
@@ -18,8 +18,14 @@ data=$(curl -sS https://launchermeta.mojang.com/mc/game/version_manifest.json)
 
 if [[ "$1" == "latest" ]]; then
     version=$(echo "$data" | jq -r .latest.release)
+elif [[ "$1" == "list-latest" ]]; then
+    echo "$data" | jq -r ".latest.release"
+    exit
 elif [[ "$1" == "latest-snapshot" ]]; then
     version=$(echo "$data" | jq -r .latest.snapshot)
+elif [[ "$1" == "list-latest-snapshot" ]]; then
+    echo "$data" | jq -r ".latest.snapshot"
+    exit
 elif [[ "$1" == "list" ]]; then
     echo "$data" | jq -r ".versions[].id"
     exit
