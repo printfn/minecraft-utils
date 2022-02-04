@@ -127,7 +127,7 @@ ssh -i "$HOME/.ssh/$REGION.pem" \
     echo \"Finding latest snapshot...\"
     LATEST_SNAPSHOT=\$(bash <(curl --proto '=https' --tlsv1.2 -sSf \\
         https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) list-latest-snapshot)
-    bash <(curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) \$LATEST_SNAPSHOT
+    bash <(curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) \$LATEST_SNAPSHOT -q
     PREV_BACKUP=\$(aws s3api list-objects-v2 --bucket printfn-data --prefix minecraft-sophie-backups/|jq -r '.Contents[-1].Key')
     PREV_BACKUP_FILE=\$(echo \$PREV_BACKUP|sed s,minecraft-sophie-backups/,,)
     echo \"Downloading last backup...\"
