@@ -1,6 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Requirements:
+#  * AWS CLI is installed
+#  * Recent versions of curl, jq and ssh are installed
+#  * AWS default profile is configured with all necessary permissions using a plain access key
+#  * Cloudflare token with DNS edit permissions
+#  * A domain is configured on Cloudflare, and an A record for an 'mc' subdomain exists
+#  * EC2 key (for SSH access) is configured in the specified region, and stored in ~/.ssh/$REGION.pem
+#  * Minecraft backups are stored in S3
+
+CLOUDFLARE_TOKEN="$(cat ~/.cloudflare/minecraft-token)"
+CLOUDFLARE_ROOT_DOMAIN="flry.net"
+BACKUP_BUCKET_NAME="printfn-data"
+BACKUP_PREFIX="minecraft-sophie-backups"
+TZ_NAME="Pacific/Auckland"
+
+CLOUDFLARE_MC_SUBDOMAIN="mc.$CLOUDFLARE_ROOT_DOMAIN"
+
 if [[ "$#" == 0 ]]; then
     echo "Usage: $0 <region>" >&2
     exit 1
@@ -90,19 +107,19 @@ curl -s --fail-with-body -X GET "https://api.cloudflare.com/client/v4/user/token
 
 echo "Finding Cloudflare Zone ID..."
 ZONE_ID=$(curl -s --fail-with-body -X GET \
-    "https://api.cloudflare.com/client/v4/zones?name=flry.net" \
-    -H "Authorization: Bearer $(cat ~/.cloudflare/minecraft-token)" \
+    "https://api.cloudflare.com/client/v4/zones?name=$CLOUDFLARE_ROOT_DOMAIN" \
+    -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
     -H "Content-Type: application/json" | jq -r '.result[0].id')
 
 echo "Finding Cloudflare DNS Record Id..."
 RECORD_ID=$(curl -s --fail-with-body -X GET \
-    "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=mc.flry.net" \
-    -H "Authorization: Bearer $(cat ~/.cloudflare/minecraft-token)" \
+    "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$CLOUDFLARE_MC_SUBDOMAIN" \
+    -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
     -H "Content-Type: application/json" | jq -r '.result[0].id')
 
 echo "Setting Cloudflare DNS A record to $SERVER_IP..."
 curl -s --fail-with-body -X PATCH "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$RECORD_ID" \
-    -H "Authorization: Bearer $(cat ~/.cloudflare/minecraft-token)" \
+    -H "Authorization: Bearer $CLOUDFLARE_TOKEN" \
     -H "Content-Type: application/json" \
     --data "{\"content\":\"$SERVER_IP\",\"ttl\":60,\"proxied\":false}" >/dev/null
 
@@ -128,10 +145,10 @@ ssh -i "$HOME/.ssh/$REGION.pem" \
     LATEST_SNAPSHOT=\$(bash <(curl --proto '=https' --tlsv1.2 -sSf \\
         https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) list-latest-snapshot)
     bash <(curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) \$LATEST_SNAPSHOT -q
-    PREV_BACKUP=\$(aws s3api list-objects-v2 --bucket printfn-data --prefix minecraft-sophie-backups/|jq -r '.Contents[-1].Key')
-    PREV_BACKUP_FILE=\$(echo \$PREV_BACKUP|sed s,minecraft-sophie-backups/,,)
+    PREV_BACKUP=\$(aws s3api list-objects-v2 --bucket $BACKUP_BUCKET_NAME --prefix $BACKUP_PREFIX/|jq -r '.Contents[-1].Key')
+    PREV_BACKUP_FILE=\$(echo \$PREV_BACKUP|sed s,$BACKUP_PREFIX/,,)
     echo \"Downloading last backup...\"
-    aws s3 cp --quiet \"s3://printfn-data/\$PREV_BACKUP\" \"\$PREV_BACKUP_FILE\"
+    aws s3 cp --quiet \"s3://$BACKUP_BUCKET_NAME/\$PREV_BACKUP\" \"\$PREV_BACKUP_FILE\"
     echo \"Extracting last backup...\"
     tar -xf \"\$PREV_BACKUP_FILE\"
     java -jar server.jar
@@ -140,13 +157,13 @@ ssh -i "$HOME/.ssh/$REGION.pem" \
     read -n 1 -r
     echo
     if [[ \$REPLY =~ ^[Yy]$ ]]; then
-        NEW_BACKUP_FILE=\"minecraft-\$(TZ=Pacific/Auckland date "+%Y-%m-%d")-\$LATEST_SNAPSHOT.tar.bz2\"
+        NEW_BACKUP_FILE=\"minecraft-\$(TZ=$TZ_NAME date "+%Y-%m-%d")-\$LATEST_SNAPSHOT.tar.bz2\"
         sudo tar -cvjSf \$NEW_BACKUP_FILE \\
             banned-ips.json banned-players.json eula.txt logs \\
             ops.json server.properties usercache.json whitelist.json \\
             world >/dev/null
         aws s3 cp --quiet --storage-class STANDARD_IA \\
-            \$NEW_BACKUP_FILE s3://printfn-data/minecraft-sophie-backups/
+            \$NEW_BACKUP_FILE s3://$BACKUP_BUCKET_NAME/$BACKUP_PREFIX/
     fi
 "
 
