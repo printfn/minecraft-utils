@@ -158,12 +158,17 @@ ssh -i "$HOME/.ssh/$REGION.pem" \
     echo
     if [[ \$REPLY =~ ^[Yy]$ ]]; then
         NEW_BACKUP_FILE=\"minecraft-\$(TZ=$TZ_NAME date "+%Y-%m-%d")-\$LATEST_SNAPSHOT.tar.bz2\"
+        echo \"Compressing backup...\"
         sudo tar -cvjSf \$NEW_BACKUP_FILE \\
             banned-ips.json banned-players.json eula.txt logs \\
             ops.json server.properties usercache.json whitelist.json \\
             world >/dev/null
-        aws s3 cp --quiet --storage-class STANDARD_IA \\
+        echo \"Uploading backup...\"
+        aws s3 cp --quiet --storage-class INTELLIGENT_TIERING \\
             \$NEW_BACKUP_FILE s3://$BACKUP_BUCKET_NAME/$BACKUP_PREFIX/
+        echo \"Backup created successfully\"
+    else
+        echo \"Skipping backup\"
     fi
 "
 
