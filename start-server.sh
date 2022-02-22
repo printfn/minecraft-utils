@@ -18,18 +18,73 @@ TZ_NAME="Pacific/Auckland"
 
 CLOUDFLARE_MC_SUBDOMAIN="mc.$CLOUDFLARE_ROOT_DOMAIN"
 
-if [[ "$#" == 0 ]]; then
-    echo "Usage: $0 <region>" >&2
+usage="Usage: start-server.sh [flags] <region>
+
+Flags:
+    --custom-version <version name> <server.jar url>  use a custom server.jar
+-h  --help                                            show this help screen
+
+Example:
+./start-server.sh --custom-version 1.19-experimental-snapshot-1 \\
+    https://launcher.mojang.com/v1/objects/973e76b8067bab5410fef92bf4412ada1f7b0f97/server.jar \\
+    us-east-1"
+
+foundregion=false
+custom_version_name=""
+custom_server_jar_url=""
+
+while [[ "$#" != 0 ]]; do
+    arg="$1"
+    if [[ "$arg" == "--custom-version" ]]; then
+        shift
+        if [[ "$#" == 0 ]]; then
+            echo "error: expected a version name (e.g. 1.18.1)" >&2
+            exit 1
+        fi
+        custom_version_name="$1"
+        shift
+        if [[ "$#" == 0 ]]; then
+            echo "error: expected a server.jar url" >&2
+            exit 1
+        fi
+        custom_server_jar_url="$1"
+    elif [[ "$arg" == "-h" || "$arg" == "--help" ]]; then
+        echo "$usage"
+        exit
+    elif [[ "$arg" =~ ^- ]]; then
+        echo "error: unknown option '$arg'" >&2
+        exit 1
+    elif [[ "$foundregion" == false ]]; then
+        REGION="$arg"
+        foundregion=true
+    else
+        echo "error: too many arguments" >&2
+        exit 1
+    fi
+    shift
+done
+
+if [[ "$foundregion" == false ]]; then
+    echo "$usage" >&2
     exit 1
 fi
-
-REGION="$1"
 
 confirm() {
     echo "$1"
     read -r -p "Press enter to confirm, or Ctrl-C to cancel"
     echo
 }
+
+if [[ "$custom_version_name" == "" ]]; then
+    echo "Finding latest snapshot..."
+    custom_version_name=$(bash <(curl --proto "=https" --tlsv1.2 -sSf \
+        https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) \
+        list-latest-snapshot)
+    download_cmd="bash <(curl --proto \"=https\" --tlsv1.2 -sSf \\
+        https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) $custom_version_name -q"
+else
+    download_cmd="curl -O \"$custom_server_jar_url\""
+fi
 
 echo "Checking if a 'Minecraft' security group exists..."
 SG_INFO="$(aws --region "$REGION" ec2 describe-security-groups \
@@ -141,10 +196,7 @@ ssh -i "$HOME/.ssh/$REGION.pem" \
     sudo yum install -y jq java-17-amazon-corretto-devel >/dev/null
     echo \"Successfully installed Java 17\":
     java -version
-    echo \"Finding latest snapshot...\"
-    LATEST_SNAPSHOT=\$(bash <(curl --proto '=https' --tlsv1.2 -sSf \\
-        https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) list-latest-snapshot)
-    bash <(curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/printfn/minecraft-utils/main/download-server-jar.sh) \$LATEST_SNAPSHOT -q
+    $download_cmd
     PREV_BACKUP=\$(aws s3api list-objects-v2 --bucket $BACKUP_BUCKET_NAME --prefix $BACKUP_PREFIX/|jq -r '.Contents[-1].Key')
     PREV_BACKUP_FILE=\$(echo \$PREV_BACKUP|sed s,$BACKUP_PREFIX/,,)
     echo \"Downloading last backup...\"
@@ -157,7 +209,7 @@ ssh -i "$HOME/.ssh/$REGION.pem" \
     read -n 1 -r
     echo
     if [[ \$REPLY =~ ^[Yy]$ ]]; then
-        NEW_BACKUP_FILE=\"minecraft-\$(TZ=$TZ_NAME date "+%Y-%m-%d")-\$LATEST_SNAPSHOT.tar.bz2\"
+        NEW_BACKUP_FILE=\"minecraft-\$(TZ=$TZ_NAME date "+%Y-%m-%d")-$custom_version_name.tar.bz2\"
         echo \"Compressing backup...\"
         sudo tar -cvjSf \$NEW_BACKUP_FILE \\
             banned-ips.json banned-players.json eula.txt logs \\
